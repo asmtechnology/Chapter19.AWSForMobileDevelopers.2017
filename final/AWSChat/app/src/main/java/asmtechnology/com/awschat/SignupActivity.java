@@ -1,5 +1,6 @@
 package asmtechnology.com.awschat;
 
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
@@ -12,9 +13,19 @@ import android.widget.Button;
 import android.widget.EditText;
 
 import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUser;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserAttributes;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserDetails;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserSession;
 
+import java.util.Map;
+
+import asmtechnology.com.awschat.controllers.CognitoIdentityPoolController;
+import asmtechnology.com.awschat.controllers.CognitoUserPoolController;
+import asmtechnology.com.awschat.interfaces.CognitoIdentityPoolControllerGenericHandler;
+import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerConfirmSignupHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerGenericHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerSignupHandler;
+import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerUserDetailsHandler;
 
 public class SignupActivity extends AppCompatActivity {
 
@@ -71,11 +82,11 @@ public class SignupActivity extends AppCompatActivity {
         CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
         userPoolController.signup(username, password, email, new CognitoUserPoolControllerSignupHandler() {
             @Override
-            public void didSucceed(CognitoUser user, boolean userMustConfirmEmailAddress) {
+            public void didSucceed(CognitoUser user, CognitoUserSession session, boolean userMustConfirmEmailAddress) {
                 if (userMustConfirmEmailAddress) {
                     requestConfirmationCode(user);
                 } else {
-                    displaySuccessMessage();
+                    getFederatedIdentity(user, session);
                 }
             }
 
@@ -187,12 +198,13 @@ public class SignupActivity extends AppCompatActivity {
 
     private void verifyConfirmationCode(final CognitoUser user, String code) {
 
-        CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
+        String password = mPasswordView.getText().toString();
 
-        userPoolController.confirmSignup(user, code, new CognitoUserPoolControllerGenericHandler() {
+        CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
+        userPoolController.confirmSignup(user, password, code, new CognitoUserPoolControllerConfirmSignupHandler() {
             @Override
-            public void didSucceed() {
-                displaySuccessMessage();
+            public void didSucceed(CognitoUser user, CognitoUserSession session) {
+                getFederatedIdentity(user,session);
             }
 
             @Override
@@ -243,5 +255,47 @@ public class SignupActivity extends AppCompatActivity {
             }
         });
 
+    }
+
+    private void getFederatedIdentity(final CognitoUser cognitoUser, final CognitoUserSession userSession) {
+
+        final Context context = this;
+        final CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
+
+        userPoolController.getUserDetails(cognitoUser, new CognitoUserPoolControllerUserDetailsHandler() {
+
+            @Override
+            public void didSucceed(CognitoUserDetails userDetails) {
+
+                CognitoUserAttributes userAttributes = userDetails.getAttributes();
+                Map attributeMap    = userAttributes.getAttributes();
+
+                String authToken = userSession.getIdToken().getJWTToken();
+                String username = mUsernameView.getText().toString();
+                String email = attributeMap.get("email").toString();
+
+                CognitoIdentityPoolController identityPoolController = CognitoIdentityPoolController.getInstance(context);
+                identityPoolController.getFederatedIdentityForAmazon(authToken,  username, email,
+                        userPoolController.getUserPoolRegion(),
+                        userPoolController.getUserPoolID(),
+                        new CognitoIdentityPoolControllerGenericHandler() {
+                            @Override
+                            public void didSucceed() {
+                                displaySuccessMessage();
+                            }
+
+                            @Override
+                            public void didFail(Exception exception) {
+                                displayErrorMessage(exception);
+                            }
+                        });
+
+            }
+
+            @Override
+            public void didFail(Exception exception) {
+                displayErrorMessage(exception);
+            }
+        });
     }
 }

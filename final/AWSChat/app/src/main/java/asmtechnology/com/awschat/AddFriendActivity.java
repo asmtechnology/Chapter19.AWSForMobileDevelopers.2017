@@ -2,7 +2,6 @@ package asmtechnology.com.awschat;
 
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.os.Bundle;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -10,68 +9,42 @@ import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.Toolbar;
-import android.view.Menu;
-import android.view.MenuItem;
 
+import asmtechnology.com.awschat.controllers.ChatManager;
 import asmtechnology.com.awschat.controllers.CognitoIdentityPoolController;
 import asmtechnology.com.awschat.controllers.DynamoDBController;
 import asmtechnology.com.awschat.interfaces.DynamoDBControllerGenericHandler;
 import asmtechnology.com.awschat.interfaces.RecyclerViewHolderListener;
-import asmtechnology.com.awschat.recyclerview.FriendListAdapter;
+import asmtechnology.com.awschat.models.User;
+import asmtechnology.com.awschat.recyclerview.PotentialFriendListAdapter;
 
-public class HomeActivity extends AppCompatActivity implements RecyclerViewHolderListener {
+public class AddFriendActivity extends AppCompatActivity implements RecyclerViewHolderListener {
 
     private RecyclerView mRecyclerView;
-    private FriendListAdapter mAdapter;
+    private PotentialFriendListAdapter mAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_home);
+        setContentView(R.layout.activity_add_friend);
 
-        this.setTitle("Friend List");
+        this.setTitle("Add Friend");
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-
         mRecyclerView = (RecyclerView) findViewById(R.id.recycler_view);
-        mAdapter = new FriendListAdapter(this, this);
+        mAdapter = new PotentialFriendListAdapter(this, this);
 
         RecyclerView.LayoutManager mLayoutManager = new LinearLayoutManager(getApplicationContext());
         mRecyclerView.setLayoutManager(mLayoutManager);
         mRecyclerView.setItemAnimator(new DefaultItemAnimator());
         mRecyclerView.setAdapter(mAdapter);
 
-        refreshFriendList();
+        refreshPotentialFriendList();
     }
 
-    protected void onResume() {
-        super.onResume();
-        refreshFriendList();
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        getMenuInflater().inflate(R.menu.menu_home, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-
-        int id = item.getItemId();
-
-        if (id == R.id.add_friend) {
-            Intent intent = new Intent(this, AddFriendActivity.class);
-            startActivity(intent);
-            return true;
-        }
-
-        return super.onOptionsItemSelected(item);
-    }
-
-    private void refreshFriendList() {
+    private void refreshPotentialFriendList() {
 
         CognitoIdentityPoolController identityPoolController = CognitoIdentityPoolController.getInstance(this);
         if (identityPoolController.mCredentialsProvider == null) {
@@ -86,7 +59,7 @@ public class HomeActivity extends AppCompatActivity implements RecyclerViewHolde
         }
 
         DynamoDBController dynamoDBController = DynamoDBController.getInstance(this);
-        dynamoDBController.refreshFriendList(userId, new DynamoDBControllerGenericHandler() {
+        dynamoDBController.refreshPotentialFriendList(userId, new DynamoDBControllerGenericHandler() {
             @Override
             public void didSucceed() {
                 runOnUiThread(new Runnable() {
@@ -133,6 +106,43 @@ public class HomeActivity extends AppCompatActivity implements RecyclerViewHolde
     }
 
     public void didTapOnRowAtIndex(int selectedIndex) {
-        // show chat activity.
+
+        // add selected user as a friend.
+        CognitoIdentityPoolController identityPoolController = CognitoIdentityPoolController.getInstance(this);
+        if (identityPoolController.mCredentialsProvider == null) {
+            displayMessage("Error", "Cognito Identity has expired. User must login again");
+            return;
+        }
+
+        String userId = identityPoolController.mCredentialsProvider.getIdentityId();
+        if ((userId == null) || (userId.length() == 0)) {
+            displayMessage("Error", "Cognito Identity has expired. User must login again");
+            return;
+        }
+
+        ChatManager chatManager = ChatManager.getInstance(this);
+        User potentialFriend = chatManager.potentialFriendList.get(selectedIndex);
+
+        DynamoDBController dynamoDBController = DynamoDBController.getInstance(this);
+        dynamoDBController.addFriend(userId, potentialFriend.getId(), new DynamoDBControllerGenericHandler() {
+
+            @Override
+            public void didSucceed() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        finish();
+                    }
+                });
+            }
+
+            @Override
+            public void didFail(Exception exception) {
+                displayMessage("Error", exception.getMessage());
+            }
+        });
+
+
+
     }
 }

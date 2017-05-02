@@ -1,4 +1,4 @@
-package asmtechnology.com.awschat;
+package asmtechnology.com.awschat.controllers;
 
 import android.content.Context;
 
@@ -19,18 +19,21 @@ import com.amazonaws.mobileconnectors.cognitoidentityprovider.handlers.GetDetail
 import com.amazonaws.mobileconnectors.cognitoidentityprovider.handlers.SignUpHandler;
 import com.amazonaws.mobileconnectors.cognitoidentityprovider.handlers.VerificationHandler;
 
+import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerConfirmSignupHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerGenericHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerSignupHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerUserDetailsHandler;
 
 public class CognitoUserPoolController {
 
+    private String userPoolRegion = "us-east-1";
     private String userPoolID = "us-east-1_qEyg0l636";
     private String appClientID = "5o6ge7468o0iuaso9ego20e2s5";
     private String appClientSecret = "ou0po8kqd8v9pjsthprac2r5msuq2b5otoi2dbbk1cjcl4nspl1";
 
     private CognitoUserPool userPool;
     private Context mContext;
+    private CognitoUserSession mUserSession;
 
     private static CognitoUserPoolController instance = null;
     private CognitoUserPoolController() {}
@@ -64,6 +67,7 @@ public class CognitoUserPoolController {
 
             @Override
             public void onSuccess(CognitoUserSession userSession, CognitoDevice newDevice) {
+                mUserSession = userSession;
                 completion.didSucceed();
             }
 
@@ -94,7 +98,7 @@ public class CognitoUserPoolController {
     }
 
     public void signup(String username,
-                       String password,
+                       final String password,
                        String emailAddress,
                        final CognitoUserPoolControllerSignupHandler completion) {
 
@@ -102,9 +106,50 @@ public class CognitoUserPoolController {
         userAttributes.addAttribute("email", emailAddress);
 
         userPool.signUpInBackground(username, password, userAttributes, null, new SignUpHandler() {
+
             @Override
-            public void onSuccess(CognitoUser user, boolean signUpConfirmationState, CognitoUserCodeDeliveryDetails cognitoUserCodeDeliveryDetails) {
-                completion.didSucceed(user, !signUpConfirmationState);
+            public void onSuccess(final CognitoUser user, final boolean signUpConfirmationState, CognitoUserCodeDeliveryDetails cognitoUserCodeDeliveryDetails) {
+
+                final boolean userMustConfirmEmailAddress = !signUpConfirmationState;
+                if (userMustConfirmEmailAddress == true) {
+                    completion.didSucceed(user, null, userMustConfirmEmailAddress);
+                    return;
+                }
+
+                user.getSessionInBackground(new AuthenticationHandler() {
+
+                    @Override
+                    public void onSuccess(CognitoUserSession userSession, CognitoDevice newDevice) {
+                        mUserSession = userSession;
+                        completion.didSucceed(user, userSession, userMustConfirmEmailAddress);
+                    }
+
+                    @Override
+                    public void getAuthenticationDetails(AuthenticationContinuation authenticationContinuation, String UserId) {
+                        // The API needs user sign-in credentials to continue
+                        AuthenticationDetails authenticationDetails = new AuthenticationDetails(UserId, password, null);
+                        authenticationContinuation.setAuthenticationDetails(authenticationDetails);
+                        authenticationContinuation.continueTask();
+                    }
+
+                    @Override
+                    public void getMFACode(MultiFactorAuthenticationContinuation continuation) {
+                        // Multi-factor authentication is required; get the verification code from user
+                    }
+
+                    @Override
+                    public void authenticationChallenge(ChallengeContinuation continuation) {
+
+                    }
+
+                    @Override
+                    public void onFailure(Exception exception) {
+                        completion.didFail(exception);
+                    }
+                });
+
+
+
             }
 
             @Override
@@ -114,12 +159,44 @@ public class CognitoUserPoolController {
         });
     }
 
-    public void confirmSignup(CognitoUser user, String confirmationCode, final CognitoUserPoolControllerGenericHandler completion) {
+    public void confirmSignup(final CognitoUser user, final String password, String confirmationCode, final CognitoUserPoolControllerConfirmSignupHandler completion) {
 
         user.confirmSignUpInBackground(confirmationCode, false, new GenericHandler() {
             @Override
             public void onSuccess() {
-                completion.didSucceed();
+
+                user.getSessionInBackground(new AuthenticationHandler() {
+
+                    @Override
+                    public void onSuccess(CognitoUserSession userSession, CognitoDevice newDevice) {
+                        mUserSession = userSession;
+                        completion.didSucceed(user, userSession);
+                    }
+
+                    @Override
+                    public void getAuthenticationDetails(AuthenticationContinuation authenticationContinuation, String UserId) {
+                        // The API needs user sign-in credentials to continue
+                        AuthenticationDetails authenticationDetails = new AuthenticationDetails(UserId, password, null);
+                        authenticationContinuation.setAuthenticationDetails(authenticationDetails);
+                        authenticationContinuation.continueTask();
+                    }
+
+                    @Override
+                    public void getMFACode(MultiFactorAuthenticationContinuation continuation) {
+                        // Multi-factor authentication is required; get the verification code from user
+                    }
+
+                    @Override
+                    public void authenticationChallenge(ChallengeContinuation continuation) {
+
+                    }
+
+                    @Override
+                    public void onFailure(Exception exception) {
+                        completion.didFail(exception);
+                    }
+                });
+
             }
 
             @Override
@@ -160,5 +237,17 @@ public class CognitoUserPoolController {
                 completion.didFail(exception);
             }
         });
+    }
+
+    public String getUserPoolID() {
+        return userPoolID;
+    }
+
+    public String getUserPoolRegion() {
+        return userPoolRegion;
+    }
+
+    public CognitoUserSession getUserSession() {
+        return mUserSession;
     }
 }

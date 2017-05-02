@@ -11,6 +11,10 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUser;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserAttributes;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserDetails;
+import com.amazonaws.mobileconnectors.cognitoidentityprovider.CognitoUserSession;
 import com.facebook.CallbackManager;
 import com.facebook.FacebookCallback;
 import com.facebook.FacebookException;
@@ -31,9 +35,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Arrays;
+import java.util.Map;
 
+import asmtechnology.com.awschat.controllers.CognitoIdentityPoolController;
+import asmtechnology.com.awschat.controllers.CognitoUserPoolController;
 import asmtechnology.com.awschat.interfaces.CognitoIdentityPoolControllerGenericHandler;
 import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerGenericHandler;
+import asmtechnology.com.awschat.interfaces.CognitoUserPoolControllerUserDetailsHandler;
 
 public class LoginActivity extends AppCompatActivity implements GoogleApiClient.OnConnectionFailedListener {
 
@@ -196,11 +204,11 @@ public class LoginActivity extends AppCompatActivity implements GoogleApiClient.
             return;
         }
 
-        CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
+        final CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
         userPoolController.login(username, password, new CognitoUserPoolControllerGenericHandler() {
             @Override
             public void didSucceed() {
-                displaySuccessMessage();
+                getFederatedIdentity(userPoolController.getCurrentUser(), userPoolController.getUserSession());
             }
 
             @Override
@@ -328,6 +336,49 @@ public class LoginActivity extends AppCompatActivity implements GoogleApiClient.
             }
         });
     }
+
+    private void getFederatedIdentity(final CognitoUser cognitoUser, final CognitoUserSession userSession) {
+
+        final Context context = this;
+        final CognitoUserPoolController userPoolController = CognitoUserPoolController.getInstance(this);
+
+        userPoolController.getUserDetails(cognitoUser, new CognitoUserPoolControllerUserDetailsHandler() {
+
+            @Override
+            public void didSucceed(CognitoUserDetails userDetails) {
+
+                CognitoUserAttributes userAttributes = userDetails.getAttributes();
+                Map attributeMap    = userAttributes.getAttributes();
+
+                String authToken = userSession.getIdToken().getJWTToken();
+                String username = mUsernameView.getText().toString();
+                String email = attributeMap.get("email").toString();
+
+                CognitoIdentityPoolController identityPoolController = CognitoIdentityPoolController.getInstance(context);
+                identityPoolController.getFederatedIdentityForAmazon(authToken,  username, email,
+                        userPoolController.getUserPoolRegion(),
+                        userPoolController.getUserPoolID(),
+                        new CognitoIdentityPoolControllerGenericHandler() {
+                    @Override
+                    public void didSucceed() {
+                        displaySuccessMessage();
+                    }
+
+                    @Override
+                    public void didFail(Exception exception) {
+                        displayErrorMessage(exception);
+                    }
+                });
+
+            }
+
+            @Override
+            public void didFail(Exception exception) {
+                displayErrorMessage(exception);
+            }
+        });
+    }
+
 
 
     @Override
